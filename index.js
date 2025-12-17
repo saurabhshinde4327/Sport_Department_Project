@@ -14,8 +14,10 @@ const SERVER_HOST = process.env.SERVER_HOST || '91.108.105.168';
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001', '*'], // Allow all origins for remote server
-  credentials: true
+  origin: '*', // Allow all origins for remote server
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -78,7 +80,25 @@ app.use('/uploads', express.static(uploadsDir));
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Server is running' });
+  res.json({ 
+    status: 'ok', 
+    message: 'Server is running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      sports: '/api/sports',
+      managers: '/api/managers',
+      students: '/api/students',
+      coaches: '/api/coaches'
+    }
+  });
+});
+
+// Test CORS
+app.options('/api/sports', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.sendStatus(200);
 });
 
 // Get all team images
