@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Backend Server for Sports Website
 
 ## Setup Instructions
@@ -40,3 +41,7 @@
 - Allowed image types: JPEG, JPG, PNG, GIF, WEBP
 - The server automatically creates necessary directories on startup
 
+=======
+# Sport_Department_Project
+The YCIS Sport Website for Management of Sports is a web-based application designed to efficiently manage and organize sports-related activities at YCIS (Your College/Institute Name). The primary objective of this project is to digitize and simplify the management of sports events, student participation and schedules.
+>>>>>>> e4f99836f729e45f87913b3edcbb77067c623cf6
