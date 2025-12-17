@@ -28,6 +28,20 @@ const initializeDatabase = async () => {
   try {
     conn = await pool.getConnection();
     
+    // Create teams table first (needed for foreign key in managers)
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS teams (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        department VARCHAR(255) NOT NULL,
+        logo VARCHAR(500),
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_name (name),
+        INDEX idx_department (department)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    
     // Create managers table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS managers (
@@ -38,10 +52,13 @@ const initializeDatabase = async () => {
         contact VARCHAR(255) NOT NULL,
         email VARCHAR(255) NOT NULL UNIQUE,
         studentCount INT NOT NULL,
+        teamId INT,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_email (email),
-        INDEX idx_sport (sport)
+        INDEX idx_sport (sport),
+        INDEX idx_team (teamId),
+        FOREIGN KEY (teamId) REFERENCES teams(id) ON DELETE SET NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
     
@@ -107,6 +124,36 @@ const initializeDatabase = async () => {
         INDEX idx_manager (managerId),
         FOREIGN KEY (studentId) REFERENCES students(id) ON DELETE CASCADE,
         FOREIGN KEY (managerId) REFERENCES managers(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    
+    // Create event_images table
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS event_images (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255),
+        description TEXT,
+        imageUrl VARCHAR(500) NOT NULL,
+        displayOrder INT DEFAULT 0,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_display_order (displayOrder)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Create notices table
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS notices (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        documentUrl VARCHAR(500),
+        scheduleImageUrl VARCHAR(500),
+        noticeDate DATE NOT NULL,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_notice_date (noticeDate),
+        INDEX idx_created_at (createdAt)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
     

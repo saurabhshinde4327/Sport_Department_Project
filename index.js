@@ -257,7 +257,11 @@ app.get('/api/managers', async (req, res) => {
   try {
     conn = await pool.getConnection();
     const managers = await conn.query(
-      'SELECT id, name, department, sport, contact, email, studentCount, createdAt, updatedAt FROM managers ORDER BY createdAt DESC'
+      `SELECT m.id, m.name, m.department, m.sport, m.contact, m.email, m.studentCount, m.teamId, m.createdAt, m.updatedAt,
+              t.name as teamName, t.department as teamDepartment
+       FROM managers m
+       LEFT JOIN teams t ON m.teamId = t.id
+       ORDER BY m.createdAt DESC`
     );
     res.json(managers);
   } catch (error) {
@@ -290,7 +294,11 @@ app.get('/api/managers/email/:email', async (req, res) => {
     const { email } = req.params;
     conn = await pool.getConnection();
     const managers = await conn.query(
-      'SELECT id, name, department, sport, contact, email, studentCount FROM managers WHERE email = ?',
+      `SELECT m.id, m.name, m.department, m.sport, m.contact, m.email, m.studentCount, m.teamId,
+              t.name as teamName
+       FROM managers m
+       LEFT JOIN teams t ON m.teamId = t.id
+       WHERE m.email = ?`,
       [email]
     );
     
@@ -311,7 +319,7 @@ app.get('/api/managers/email/:email', async (req, res) => {
 app.post('/api/managers', async (req, res) => {
   let conn;
   try {
-    const { name, department, sport, contact, email, studentCount } = req.body;
+    const { name, department, sport, contact, email, studentCount, teamId } = req.body;
 
     // Validation
     if (!name || !department || !sport || !contact || !email || !studentCount) {
@@ -340,14 +348,18 @@ app.post('/api/managers', async (req, res) => {
 
     // Insert new manager
     const result = await conn.query(
-      `INSERT INTO managers (name, department, sport, contact, email, studentCount) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, department, sport, contact, email, count]
+      `INSERT INTO managers (name, department, sport, contact, email, studentCount, teamId) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [name.trim(), department.trim(), sport.trim(), contact.trim(), email.trim(), count, teamId || null]
     );
 
     // Fetch the created manager
     const newManager = await conn.query(
-      'SELECT id, name, department, sport, contact, email, studentCount, createdAt FROM managers WHERE id = ?',
+      `SELECT m.id, m.name, m.department, m.sport, m.contact, m.email, m.studentCount, m.teamId, m.createdAt,
+              t.name as teamName, t.department as teamDepartment
+       FROM managers m
+       LEFT JOIN teams t ON m.teamId = t.id
+       WHERE m.id = ?`,
       [result.insertId]
     );
 
@@ -369,7 +381,7 @@ app.put('/api/managers/:id', async (req, res) => {
   let conn;
   try {
     const { id } = req.params;
-    const { name, department, sport, contact, email, studentCount } = req.body;
+    const { name, department, sport, contact, email, studentCount, teamId } = req.body;
 
     // Validation
     if (!name || !department || !sport || !contact || !email || !studentCount) {
@@ -405,14 +417,18 @@ app.put('/api/managers/:id', async (req, res) => {
     // Update manager
     await conn.query(
       `UPDATE managers 
-       SET name = ?, department = ?, sport = ?, contact = ?, email = ?, studentCount = ? 
+       SET name = ?, department = ?, sport = ?, contact = ?, email = ?, studentCount = ?, teamId = ? 
        WHERE id = ?`,
-      [name, department, sport, contact, email, count, id]
+      [name.trim(), department.trim(), sport.trim(), contact.trim(), email.trim(), count, teamId || null, id]
     );
 
     // Fetch updated manager
     const updated = await conn.query(
-      'SELECT id, name, department, sport, contact, email, studentCount, createdAt, updatedAt FROM managers WHERE id = ?',
+      `SELECT m.id, m.name, m.department, m.sport, m.contact, m.email, m.studentCount, m.teamId, m.createdAt, m.updatedAt,
+              t.name as teamName, t.department as teamDepartment
+       FROM managers m
+       LEFT JOIN teams t ON m.teamId = t.id
+       WHERE m.id = ?`,
       [id]
     );
 
@@ -1087,6 +1103,821 @@ app.post('/api/student-selections/toggle', async (req, res) => {
   }
 });
 
+// ==================== TEAMS API ENDPOINTS ====================
+
+// Test teams endpoint
+app.get('/api/teams/test', (req, res) => {
+  res.json({ message: 'Teams API is working', timestamp: new Date().toISOString() });
+});
+
+// Get all teams
+app.get('/api/teams', async (req, res) => {
+  let conn;
+  try {
+    console.log('GET /api/teams - Request received');
+    conn = await pool.getConnection();
+    console.log('Database connection acquired for teams');
+    
+    const teams = await conn.query(
+      'SELECT id, name, department, logo, createdAt, updatedAt FROM teams ORDER BY name ASC'
+    );
+    
+    console.log(`Found ${teams.length} teams`);
+    res.json(teams);
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+    console.error('Error details:', {
+      code: error.code,
+      errno: error.errno,
+      sqlState: error.sqlState,
+      message: error.message
+    });
+    
+    // If table doesn't exist, return empty array instead of error
+    if (error.code === 'ER_NO_SUCH_TABLE') {
+      console.warn('Teams table does not exist yet. Returning empty array.');
+      return res.json([]);
+    }
+    
+    res.status(500).json({ error: 'Failed to fetch teams', details: error.message });
+  } finally {
+    if (conn) {
+      try {
+        conn.release();
+      } catch (releaseError) {
+        console.error('Error releasing connection:', releaseError);
+      }
+    }
+  }
+});
+
+// Get team by ID
+app.get('/api/teams/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    const teams = await conn.query(
+      'SELECT id, name, department, logo, createdAt, updatedAt FROM teams WHERE id = ?',
+      [id]
+    );
+    
+    if (teams.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+    
+    res.json(teams[0]);
+  } catch (error) {
+    console.error('Error fetching team:', error);
+    res.status(500).json({ error: 'Failed to fetch team' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Create new team (with logo upload)
+const teamLogoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, 'team-logo-' + uniqueSuffix + path.extname(file.originalname));
+    }
+  }),
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for team logos!'));
+    }
+  },
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
+
+app.post('/api/teams', teamLogoUpload.single('logo'), async (req, res) => {
+  let conn;
+  try {
+    const { name, department } = req.body;
+
+    console.log('Received team data:', { name, department, hasFile: !!req.file });
+
+    // Validation
+    if (!name || !name.trim()) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path); // Delete uploaded file if validation fails
+      }
+      return res.status(400).json({ error: 'Team name is required' });
+    }
+
+    if (!department || !department.trim()) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ error: 'Team department is required' });
+    }
+
+    conn = await pool.getConnection();
+    
+    // Check if team name already exists
+    const existing = await conn.query('SELECT id FROM teams WHERE name = ?', [name.trim()]);
+    if (existing.length > 0) {
+      conn.release();
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ error: 'Team name already exists' });
+    }
+
+    // Generate logo URL if file was uploaded
+    let logoUrl = null;
+    if (req.file) {
+      logoUrl = `http://${SERVER_HOST}:${PORT}/uploads/${req.file.filename}`;
+    }
+
+    // Insert new team
+    const result = await conn.query(
+      `INSERT INTO teams (name, department, logo) VALUES (?, ?, ?)`,
+      [name.trim(), department.trim(), logoUrl]
+    );
+
+    console.log('Team inserted with ID:', result.insertId);
+
+    // Fetch the created team
+    const newTeam = await conn.query(
+      'SELECT id, name, department, logo, createdAt FROM teams WHERE id = ?',
+      [result.insertId]
+    );
+
+    conn.release();
+    res.status(201).json({ success: true, team: newTeam[0] });
+  } catch (error) {
+    console.error('Error creating team:', error);
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error deleting uploaded file:', unlinkError);
+      }
+    }
+    if (conn) conn.release();
+    
+    if (error.code === 'ER_DUP_ENTRY') {
+      res.status(400).json({ error: 'Team name already exists' });
+    } else {
+      res.status(500).json({ error: 'Failed to create team', details: error.message });
+    }
+  }
+});
+
+// Update team (with optional logo upload)
+app.put('/api/teams/:id', teamLogoUpload.single('logo'), async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { name, department } = req.body;
+
+    if (!name || !name.trim()) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ error: 'Team name is required' });
+    }
+
+    if (!department || !department.trim()) {
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ error: 'Team department is required' });
+    }
+
+    conn = await pool.getConnection();
+    
+    // Check if team exists
+    const existing = await conn.query('SELECT id, logo FROM teams WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      conn.release();
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Check if team name is used by another team
+    const nameCheck = await conn.query('SELECT id FROM teams WHERE name = ? AND id != ?', [name.trim(), id]);
+    if (nameCheck.length > 0) {
+      conn.release();
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({ error: 'Team name already exists' });
+    }
+
+    // Delete old logo if new one is uploaded
+    let logoUrl = existing[0].logo; // Keep existing logo by default
+    if (req.file) {
+      // Delete old logo file if it exists
+      if (existing[0].logo) {
+        const oldLogoPath = existing[0].logo.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+        const oldFilePath = path.join(uploadsDir, oldLogoPath);
+        try {
+          if (fs.existsSync(oldFilePath)) {
+            fs.unlinkSync(oldFilePath);
+          }
+        } catch (unlinkError) {
+          console.error('Error deleting old logo:', unlinkError);
+        }
+      }
+      logoUrl = `http://${SERVER_HOST}:${PORT}/uploads/${req.file.filename}`;
+    }
+
+    // Update team
+    await conn.query(
+      `UPDATE teams SET name = ?, department = ?, logo = ? WHERE id = ?`,
+      [name.trim(), department.trim(), logoUrl, id]
+    );
+
+    // Fetch updated team
+    const updated = await conn.query(
+      'SELECT id, name, department, logo, createdAt, updatedAt FROM teams WHERE id = ?',
+      [id]
+    );
+
+    conn.release();
+    res.json({ success: true, team: updated[0] });
+  } catch (error) {
+    console.error('Error updating team:', error);
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error deleting uploaded file:', unlinkError);
+      }
+    }
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+// Delete team
+app.delete('/api/teams/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    
+    const existing = await conn.query('SELECT id, logo FROM teams WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      conn.release();
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Delete logo file if it exists
+    if (existing[0].logo) {
+      const logoPath = existing[0].logo.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+      const filePath = path.join(uploadsDir, logoPath);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (unlinkError) {
+        console.error('Error deleting logo file:', unlinkError);
+      }
+    }
+
+    await conn.query('DELETE FROM teams WHERE id = ?', [id]);
+    conn.release();
+    res.json({ success: true, message: 'Team deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting team:', error);
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
+// ==================== EVENT IMAGES API ENDPOINTS ====================
+
+// Get all event images
+app.get('/api/event-images', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const images = await conn.query(
+      'SELECT id, title, description, imageUrl, displayOrder, createdAt, updatedAt FROM event_images ORDER BY displayOrder ASC, createdAt DESC'
+    );
+    res.json(images);
+  } catch (error) {
+    console.error('Error fetching event images:', error);
+    res.status(500).json({ error: 'Failed to fetch event images' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Get event image by ID
+app.get('/api/event-images/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    const images = await conn.query(
+      'SELECT id, title, description, imageUrl, displayOrder, createdAt, updatedAt FROM event_images WHERE id = ?',
+      [id]
+    );
+    
+    if (images.length === 0) {
+      return res.status(404).json({ error: 'Event image not found' });
+    }
+    
+    res.json(images[0]);
+  } catch (error) {
+    console.error('Error fetching event image:', error);
+    res.status(500).json({ error: 'Failed to fetch event image' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Create new event image (with file upload)
+const eventImageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, 'event-image-' + uniqueSuffix + path.extname(file.originalname));
+    }
+  }),
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for event images!'));
+    }
+  },
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
+
+app.post('/api/event-images', eventImageUpload.single('image'), async (req, res) => {
+  let conn;
+  try {
+    const { title, description, displayOrder } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'Image file is required' });
+    }
+
+    conn = await pool.getConnection();
+    
+    const imageUrl = `http://${SERVER_HOST}:${PORT}/uploads/${req.file.filename}`;
+    const order = displayOrder ? parseInt(displayOrder) : 0;
+
+    const result = await conn.query(
+      `INSERT INTO event_images (title, description, imageUrl, displayOrder) VALUES (?, ?, ?, ?)`,
+      [
+        title ? title.trim() : null,
+        description ? description.trim() : null,
+        imageUrl,
+        order
+      ]
+    );
+
+    const newImage = await conn.query(
+      'SELECT id, title, description, imageUrl, displayOrder, createdAt FROM event_images WHERE id = ?',
+      [result.insertId]
+    );
+
+    conn.release();
+    res.status(201).json({ success: true, image: newImage[0] });
+  } catch (error) {
+    console.error('Error creating event image:', error);
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error deleting uploaded file:', unlinkError);
+      }
+    }
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to create event image', details: error.message });
+  }
+});
+
+// Update event image
+app.put('/api/event-images/:id', eventImageUpload.single('image'), async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { title, description, displayOrder } = req.body;
+
+    conn = await pool.getConnection();
+    
+    const existing = await conn.query('SELECT id, imageUrl FROM event_images WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      conn.release();
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(404).json({ error: 'Event image not found' });
+    }
+
+    let imageUrl = existing[0].imageUrl;
+    
+    // If new image uploaded, delete old one and update URL
+    if (req.file) {
+      // Delete old image file
+      if (existing[0].imageUrl) {
+        const oldImagePath = existing[0].imageUrl.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+        const oldFilePath = path.join(uploadsDir, oldImagePath);
+        try {
+          if (fs.existsSync(oldFilePath)) {
+            fs.unlinkSync(oldFilePath);
+          }
+        } catch (unlinkError) {
+          console.error('Error deleting old image:', unlinkError);
+        }
+      }
+      imageUrl = `http://${SERVER_HOST}:${PORT}/uploads/${req.file.filename}`;
+    }
+
+    const order = displayOrder ? parseInt(displayOrder) : existing[0].displayOrder || 0;
+
+    await conn.query(
+      `UPDATE event_images SET title = ?, description = ?, imageUrl = ?, displayOrder = ? WHERE id = ?`,
+      [
+        title ? title.trim() : null,
+        description ? description.trim() : null,
+        imageUrl,
+        order,
+        id
+      ]
+    );
+
+    const updated = await conn.query(
+      'SELECT id, title, description, imageUrl, displayOrder, createdAt, updatedAt FROM event_images WHERE id = ?',
+      [id]
+    );
+
+    conn.release();
+    res.json({ success: true, image: updated[0] });
+  } catch (error) {
+    console.error('Error updating event image:', error);
+    if (req.file) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkError) {
+        console.error('Error deleting uploaded file:', unlinkError);
+      }
+    }
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to update event image' });
+  }
+});
+
+// Delete event image
+app.delete('/api/event-images/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    
+    const existing = await conn.query('SELECT id, imageUrl FROM event_images WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      conn.release();
+      return res.status(404).json({ error: 'Event image not found' });
+    }
+
+    // Delete image file
+    if (existing[0].imageUrl) {
+      const imagePath = existing[0].imageUrl.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+      const filePath = path.join(uploadsDir, imagePath);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (unlinkError) {
+        console.error('Error deleting image file:', unlinkError);
+      }
+    }
+
+    await conn.query('DELETE FROM event_images WHERE id = ?', [id]);
+    conn.release();
+    res.json({ success: true, message: 'Event image deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting event image:', error);
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to delete event image' });
+  }
+});
+
+// ==================== NOTICES API ENDPOINTS ====================
+
+// Get all notices
+app.get('/api/notices', async (req, res) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const notices = await conn.query(
+      'SELECT id, title, description, documentUrl, scheduleImageUrl, noticeDate, createdAt, updatedAt FROM notices ORDER BY noticeDate DESC, createdAt DESC'
+    );
+    res.json(notices);
+  } catch (error) {
+    console.error('Error fetching notices:', error);
+    res.status(500).json({ error: 'Failed to fetch notices' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Get notice by ID
+app.get('/api/notices/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    const notices = await conn.query(
+      'SELECT id, title, description, documentUrl, scheduleImageUrl, noticeDate, createdAt, updatedAt FROM notices WHERE id = ?',
+      [id]
+    );
+    
+    if (notices.length === 0) {
+      return res.status(404).json({ error: 'Notice not found' });
+    }
+    
+    res.json(notices[0]);
+  } catch (error) {
+    console.error('Error fetching notice by ID:', error);
+    res.status(500).json({ error: 'Failed to fetch notice' });
+  } finally {
+    if (conn) conn.release();
+  }
+});
+
+// Create new notice (with PDF and image upload)
+const noticeUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadsDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const prefix = file.fieldname === 'document' ? 'notice-doc-' : 'notice-schedule-';
+      cb(null, prefix + uniqueSuffix + path.extname(file.originalname));
+    }
+  }),
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === 'document') {
+      if (file.mimetype === 'application/pdf') {
+        return cb(null, true);
+      } else {
+        return cb(new Error('Document must be a PDF file'));
+      }
+    } else if (file.fieldname === 'scheduleImage') {
+      if (file.mimetype.startsWith('image/')) {
+        return cb(null, true);
+      } else {
+        return cb(new Error('Schedule image must be an image file'));
+      }
+    } else {
+      cb(new Error('Invalid field name'));
+    }
+  },
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
+
+app.post('/api/notices', noticeUpload.fields([
+  { name: 'document', maxCount: 1 },
+  { name: 'scheduleImage', maxCount: 1 }
+]), async (req, res) => {
+  let conn;
+  try {
+    const { title, description, noticeDate } = req.body;
+    const files = req.files;
+
+    if (!title || !description || !noticeDate) {
+      // Clean up uploaded files if validation fails
+      if (files) {
+        Object.values(files).flat().forEach(file => {
+          try {
+            fs.unlinkSync(file.path);
+          } catch (unlinkError) {
+            console.error('Error deleting uploaded file:', unlinkError);
+          }
+        });
+      }
+      return res.status(400).json({ error: 'Title, description, and notice date are required' });
+    }
+
+    conn = await pool.getConnection();
+    
+    let documentUrl = null;
+    let scheduleImageUrl = null;
+    
+    if (files.document && files.document[0]) {
+      documentUrl = `http://${SERVER_HOST}:${PORT}/uploads/${files.document[0].filename}`;
+    }
+    
+    if (files.scheduleImage && files.scheduleImage[0]) {
+      scheduleImageUrl = `http://${SERVER_HOST}:${PORT}/uploads/${files.scheduleImage[0].filename}`;
+    }
+
+    const result = await conn.query(
+      `INSERT INTO notices (title, description, documentUrl, scheduleImageUrl, noticeDate) VALUES (?, ?, ?, ?, ?)`,
+      [
+        title.trim(),
+        description.trim(),
+        documentUrl,
+        scheduleImageUrl,
+        noticeDate
+      ]
+    );
+
+    const newNotice = await conn.query(
+      'SELECT id, title, description, documentUrl, scheduleImageUrl, noticeDate, createdAt FROM notices WHERE id = ?',
+      [result.insertId]
+    );
+
+    conn.release();
+    res.status(201).json({ success: true, notice: newNotice[0] });
+  } catch (error) {
+    console.error('Error creating notice:', error);
+    // Clean up uploaded files on error
+    if (req.files) {
+      const files = req.files;
+      Object.values(files).flat().forEach(file => {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (unlinkError) {
+          console.error('Error deleting uploaded file:', unlinkError);
+        }
+      });
+    }
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to create notice', details: error.message });
+  }
+});
+
+// Update notice
+app.put('/api/notices/:id', noticeUpload.fields([
+  { name: 'document', maxCount: 1 },
+  { name: 'scheduleImage', maxCount: 1 }
+]), async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    const { title, description, noticeDate } = req.body;
+    const files = req.files;
+
+    conn = await pool.getConnection();
+    
+    const existing = await conn.query('SELECT id, documentUrl, scheduleImageUrl FROM notices WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      conn.release();
+      // Clean up uploaded files
+      if (files) {
+        Object.values(files).flat().forEach(file => {
+          try {
+            fs.unlinkSync(file.path);
+          } catch (unlinkError) {
+            console.error('Error deleting uploaded file:', unlinkError);
+          }
+        });
+      }
+      return res.status(404).json({ error: 'Notice not found' });
+    }
+
+    let documentUrl = existing[0].documentUrl;
+    let scheduleImageUrl = existing[0].scheduleImageUrl;
+    
+    // If new document uploaded, delete old one and update URL
+    if (files.document && files.document[0]) {
+      // Delete old document file
+      if (existing[0].documentUrl) {
+        const oldDocPath = existing[0].documentUrl.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+        const oldFilePath = path.join(uploadsDir, oldDocPath);
+        try {
+          if (fs.existsSync(oldFilePath)) {
+            fs.unlinkSync(oldFilePath);
+          }
+        } catch (unlinkError) {
+          console.error('Error deleting old document:', unlinkError);
+        }
+      }
+      documentUrl = `http://${SERVER_HOST}:${PORT}/uploads/${files.document[0].filename}`;
+    }
+
+    // If new schedule image uploaded, delete old one and update URL
+    if (files.scheduleImage && files.scheduleImage[0]) {
+      // Delete old schedule image file
+      if (existing[0].scheduleImageUrl) {
+        const oldImagePath = existing[0].scheduleImageUrl.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+        const oldFilePath = path.join(uploadsDir, oldImagePath);
+        try {
+          if (fs.existsSync(oldFilePath)) {
+            fs.unlinkSync(oldFilePath);
+          }
+        } catch (unlinkError) {
+          console.error('Error deleting old schedule image:', unlinkError);
+        }
+      }
+      scheduleImageUrl = `http://${SERVER_HOST}:${PORT}/uploads/${files.scheduleImage[0].filename}`;
+    }
+
+    await conn.query(
+      `UPDATE notices SET title = ?, description = ?, documentUrl = ?, scheduleImageUrl = ?, noticeDate = ? WHERE id = ?`,
+      [
+        title.trim(),
+        description.trim(),
+        documentUrl,
+        scheduleImageUrl,
+        noticeDate,
+        id
+      ]
+    );
+
+    const updated = await conn.query(
+      'SELECT id, title, description, documentUrl, scheduleImageUrl, noticeDate, createdAt, updatedAt FROM notices WHERE id = ?',
+      [id]
+    );
+
+    conn.release();
+    res.json({ success: true, notice: updated[0] });
+  } catch (error) {
+    console.error('Error updating notice:', error);
+    // Clean up uploaded files on error
+    if (files) {
+      Object.values(files).flat().forEach(file => {
+        try {
+          fs.unlinkSync(file.path);
+        } catch (unlinkError) {
+          console.error('Error deleting uploaded file:', unlinkError);
+        }
+      });
+    }
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to update notice' });
+  }
+});
+
+// Delete notice
+app.delete('/api/notices/:id', async (req, res) => {
+  let conn;
+  try {
+    const { id } = req.params;
+    conn = await pool.getConnection();
+    
+    const existing = await conn.query('SELECT id, documentUrl, scheduleImageUrl FROM notices WHERE id = ?', [id]);
+    if (existing.length === 0) {
+      conn.release();
+      return res.status(404).json({ error: 'Notice not found' });
+    }
+
+    // Delete document file
+    if (existing[0].documentUrl) {
+      const docPath = existing[0].documentUrl.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+      const filePath = path.join(uploadsDir, docPath);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (unlinkError) {
+        console.error('Error deleting document file:', unlinkError);
+      }
+    }
+
+    // Delete schedule image file
+    if (existing[0].scheduleImageUrl) {
+      const imagePath = existing[0].scheduleImageUrl.replace(`http://${SERVER_HOST}:${PORT}/uploads/`, '');
+      const filePath = path.join(uploadsDir, imagePath);
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (unlinkError) {
+        console.error('Error deleting schedule image file:', unlinkError);
+      }
+    }
+
+    await conn.query('DELETE FROM notices WHERE id = ?', [id]);
+    conn.release();
+    res.json({ success: true, message: 'Notice deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting notice:', error);
+    if (conn) conn.release();
+    res.status(500).json({ error: 'Failed to delete notice' });
+  }
+});
+
 // 404 handler for API routes
 app.use('/api/*', (req, res) => {
   console.log(`404 - Route not found: ${req.method} ${req.originalUrl}`);
@@ -1102,5 +1933,19 @@ app.listen(PORT, () => {
   console.log('  GET    /api/sports/:id');
   console.log('  PUT    /api/sports/:id');
   console.log('  DELETE /api/sports/:id');
+  console.log('  GET    /api/teams');
+  console.log('  POST   /api/teams');
+  console.log('  GET    /api/teams/:id');
+  console.log('  PUT    /api/teams/:id');
+  console.log('  DELETE /api/teams/:id');
+  console.log('  GET    /api/event-images');
+  console.log('  POST   /api/event-images');
+  console.log('  PUT    /api/event-images/:id');
+  console.log('  DELETE /api/event-images/:id');
+  console.log('  GET    /api/notices');
+  console.log('  POST   /api/notices');
+  console.log('  GET    /api/notices/:id');
+  console.log('  PUT    /api/notices/:id');
+  console.log('  DELETE /api/notices/:id');
 });
 
