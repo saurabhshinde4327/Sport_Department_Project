@@ -2011,8 +2011,16 @@ app.post('/api/student-links', async (req, res) => {
       [result.insertId]
     );
 
+    // Convert BigInt values to numbers for JSON serialization
+    const serializedLink = {
+      ...newLink[0],
+      id: Number(newLink[0].id),
+      managerId: Number(newLink[0].managerId),
+      isActive: Boolean(newLink[0].isActive),
+    };
+
     conn.release();
-    res.status(201).json({ success: true, link: newLink[0] });
+    res.status(201).json({ success: true, link: serializedLink });
   } catch (error) {
     console.error('Error creating student link:', error);
     if (conn) conn.release();
@@ -2042,8 +2050,17 @@ app.get('/api/student-links', async (req, res) => {
       [managerId]
     );
 
+    // Convert BigInt values to numbers for JSON serialization
+    const serializedLinks = links.map(link => ({
+      ...link,
+      id: Number(link.id),
+      managerId: Number(link.managerId),
+      studentCount: Number(link.studentCount),
+      isActive: Boolean(link.isActive),
+    }));
+
     conn.release();
-    res.json(links);
+    res.json(serializedLinks);
   } catch (error) {
     console.error('Error fetching student links:', error);
     if (conn) conn.release();
@@ -2072,8 +2089,16 @@ app.get('/api/student-links/token/:token', async (req, res) => {
       return res.status(404).json({ error: 'Link not found or inactive' });
     }
 
+    // Convert BigInt values to numbers
+    const serializedLink = {
+      ...links[0],
+      id: Number(links[0].id),
+      managerId: Number(links[0].managerId),
+      isActive: Boolean(links[0].isActive),
+    };
+
     conn.release();
-    res.json(links[0]);
+    res.json(serializedLink);
   } catch (error) {
     console.error('Error fetching link by token:', error);
     if (conn) conn.release();
@@ -2214,8 +2239,16 @@ app.put('/api/student-links/:id', async (req, res) => {
 
     const updated = await conn.query('SELECT * FROM student_links WHERE id = ?', [id]);
 
+    // Convert BigInt values to numbers
+    const serializedLink = {
+      ...updated[0],
+      id: Number(updated[0].id),
+      managerId: Number(updated[0].managerId),
+      isActive: Boolean(updated[0].isActive),
+    };
+
     conn.release();
-    res.json({ success: true, link: updated[0] });
+    res.json({ success: true, link: serializedLink });
   } catch (error) {
     console.error('Error updating link:', error);
     if (conn) conn.release();
