@@ -35,12 +35,23 @@ const initializeDatabase = async () => {
         name VARCHAR(255) NOT NULL,
         department VARCHAR(255) NOT NULL,
         logo VARCHAR(500),
+        color VARCHAR(50) DEFAULT '#f58002',
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_name (name),
         INDEX idx_department (department)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+    
+    // Add color column if it doesn't exist (for existing databases)
+    try {
+      await conn.query('ALTER TABLE teams ADD COLUMN color VARCHAR(50) DEFAULT "#f58002"');
+    } catch (error) {
+      // Column already exists, ignore error
+      if (!error.message.includes('Duplicate column name')) {
+        console.log('Note: color column may already exist in teams table');
+      }
+    }
     
     // Create managers table
     await conn.query(`
@@ -140,7 +151,7 @@ const initializeDatabase = async () => {
         INDEX idx_display_order (displayOrder)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
-
+    
     // Create notices table
     await conn.query(`
       CREATE TABLE IF NOT EXISTS notices (
@@ -152,10 +163,35 @@ const initializeDatabase = async () => {
         noticeDate DATE NOT NULL,
         createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_notice_date (noticeDate),
-        INDEX idx_created_at (createdAt)
+        INDEX idx_notice_date (noticeDate)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+    
+    // Create student_links table for link generation
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS student_links (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        managerId INT NOT NULL,
+        token VARCHAR(255) NOT NULL UNIQUE,
+        isActive BOOLEAN DEFAULT TRUE,
+        createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_manager (managerId),
+        INDEX idx_token (token),
+        FOREIGN KEY (managerId) REFERENCES managers(id) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+    
+    // Add linkToken column to students table if it doesn't exist
+    try {
+      await conn.query('ALTER TABLE students ADD COLUMN linkToken VARCHAR(255)');
+      await conn.query('ALTER TABLE students ADD INDEX idx_link_token (linkToken)');
+    } catch (error) {
+      // Column already exists, ignore error
+      if (!error.message.includes('Duplicate column name')) {
+        console.log('Note: linkToken column may already exist in students table');
+      }
+    }
     
     console.log('Database tables initialized successfully');
   } catch (error) {
